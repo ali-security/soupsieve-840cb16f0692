@@ -1,13 +1,12 @@
 name: deploy
 
 on:
-  push:
-    tags:
-    - '*'
+  workflow_dispatch: {}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v7
@@ -16,15 +15,18 @@ jobs:
           python-version: 3.14
       - name: Build
         run: |
-          pip install --upgrade pip build
-          python -m build -s -w
+          pip install --upgrade pip build hatchling==1.32.4
+          python -m build -s -w --no-isolation
       - name: Store the distribution packages
         uses: actions/upload-artifact@v7
         with:
           name: python-package-distributions
           path: dist/
+          if-no-files-found: error
 
   pypi-publish:
+    if: false
+    timeout-minutes: 10
     needs:
       - build
     runs-on: ubuntu-latest
