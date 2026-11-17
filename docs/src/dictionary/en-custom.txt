@@ -54,6 +54,7 @@ formatter
 fullscreen
 hashable
 html
+inlined
 iterable
 iterables
 linter
