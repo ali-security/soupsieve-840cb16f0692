@@ -553,6 +553,7 @@ class CSSMatch(_DocumentNav):
         self.iframe_restrict = False
         self.nth_cache: dict[Hashable, list[int]] = {}
         self.sib_cache: dict[Hashable, int] = {}
+        self.anc_cache: dict[tuple[int, int, bool], bool] = {}
 
         # Find the root element for the whole tree
         doc = scope
@@ -581,6 +582,7 @@ class CSSMatch(_DocumentNav):
 
         self.nth_cache.clear()
         self.sib_cache.clear()
+        self.anc_cache.clear()
 
     def supports_namespaces(self) -> bool:
         """Check if namespaces are supported in the HTML type."""
@@ -892,6 +894,32 @@ class CSSMatch(_DocumentNav):
 
         return found
 
+    def match_ancestor(self, el: bs4.Tag, relation: ct.SelectorList) -> MatchGenerator:
+        """
+        Match descendant combinator.
+
+        A selector with several descendant combinators tries every ancestor for each one, which is
+        a polynomial of the depth with a degree of the number of combinators. Every element visited
+        on the walk shares the result, so cache whether each one is or has a matching ancestor.
+        """
+
+        found = False
+        visited: list[tuple[int, int, bool]] = []
+        parent: bs4.Tag | None = el
+        while not found and parent and (parent := self.get_parent(parent, no_iframe=self.iframe_restrict)):
+            # The walk stops at different points depending on the `iframe` restriction, so it is part of the key.
+            key = (id(parent), id(relation), self.iframe_restrict)
+            if key in self.anc_cache:
+                found = self.anc_cache[key]
+                break
+            visited.append(key)
+            found = yield parent, relation
+
+        for key in visited:
+            self.anc_cache[key] = found
+
+        return found
+
     def match_past_relations(self, el: bs4.Tag, relation: ct.SelectorList) -> MatchGenerator:
         """Match past relationship."""
 
@@ -901,9 +929,12 @@ class CSSMatch(_DocumentNav):
             return found
 
         if relation[0].rel_type == REL_PARENT:
-            parent: bs4.Tag | None = el
-            while not found and parent and (parent := self.get_parent(parent, no_iframe=self.iframe_restrict)):
-                found = parent is not None and (yield parent, relation)
+            if self.enable_cache:
+                found = yield from self.match_ancestor(el, relation)
+            else:
+                parent: bs4.Tag | None = el
+                while not found and parent and (parent := self.get_parent(parent, no_iframe=self.iframe_restrict)):
+                    found = parent is not None and (yield parent, relation)
         elif relation[0].rel_type == REL_CLOSE_PARENT:
             parent = self.get_parent(el, no_iframe=self.iframe_restrict)
             found = parent is not None and (yield parent, relation)
